@@ -1,0 +1,8 @@
+pod error --- utf-8
+================================
+1. pod init
+生成Podfile
+2. Edit podfile
+3.pod install
+---Invalid `Podfile` file: incompatible character encodings: UTF-8 and ASCII-8BIT. Updating CocoaPods might fix the issue.
+mac键盘偏好--->使用智能引号和破折号导致'变为‘
