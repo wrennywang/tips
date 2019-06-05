@@ -75,3 +75,18 @@ H.264编码器：x264enc/vtenc_h264/vtenc_h264_hw
 
 aac编码器：faac/avenc_aac
 
+Ubuntu
+> sudo apt-get install gstreamer1.0-libav
+
+找到avenc_h264_omx / avenc_aac
+
+使用avenc_h264_omx
+> gst-launch-1.0 filesrc location=../Desktop/2.webm ! decodebin name=demux ! queue ! avenc_h264_omx ! mp4mux name=mux ! filesink location=1.mp4 demux. ! queue ! audioconvert ! audioresample ! avenc_aac ! mux.
+
+会提示'ERROR:xxx matroskademux0: Internal data stream error.'
+> sudo apt-get install gstreamer1.0-plugins-ugly
+
+增加x264enc
+> gst-launch-1.0 filesrc location=../Desktop/2.webm ! decodebin name=demux ! queue ! x264enc ! mp4mux name=mux ! filesink location=1.mp4 demux. ! queue ! audioconvert ! audioresample ! avenc_aac ! mux.
+
+**OK!**
