@@ -66,16 +66,16 @@ mac os安装 gstreamer
 > gst-launch-1.0.exe filesrc location=e:\\2.webm ! decodebin name=demux ! queue ! x264enc ! mp4mux name=mux ! filesink location=e:\\3.mp4 demux. ! queue ! audioconvert ! audioresample ! avenc_aac ! mux.
 
 **搞定！**
-
+---------------------------------------------------
 **补充**
 
-mac os安装完毕
+`mac os安装完毕`
 
 H.264编码器：x264enc/vtenc_h264/vtenc_h264_hw
 
 aac编码器：faac/avenc_aac
 
-Ubuntu
+`Ubuntu`
 > sudo apt-get install gstreamer1.0-libav
 
 找到avenc_h264_omx / avenc_aac
@@ -88,5 +88,33 @@ Ubuntu
 
 增加x264enc
 > gst-launch-1.0 filesrc location=../Desktop/2.webm ! decodebin name=demux ! queue ! x264enc ! mp4mux name=mux ! filesink location=1.mp4 demux. ! queue ! audioconvert ! audioresample ! avenc_aac ! mux.
+*OK*
 
-**OK!**
+`CentOS 7`
+    
+> sudo yum -y install gstreamer1-libav
+    
+libav无法直接安装; 提示没有可用软件包gstreamer1-libav
+> sudo yum -y install http://li.nux.ro/download/nux/dextop/el7/x86_64/nux-dextop-release-0-5.el7.nux.noarch.rpm <br>
+> sudo yum -y install libdvdcss gstreamer{,1}-plugins-ugly gstreamer-plugins-bad-nonfree gstreamer1-plugins-bad-freeworld libde265 x265
+
+从输出看,相关插件从0.10.4.x更新至0.10.19-17<br>
+x264-libs, x265-libs安装<br>
+faac安装
+> gst-launch-1.0 filesrc location=sample.webm ! decodebin name=demux ! queue ! x264enc ! mp4mux name=mux ! filesink location=1.mp4 demux. ! queue ! audioconvert ! audioresample ! faac ! mux.
+
+提示错误管道：无组件'faac'<br>
+移除音频处理OK
+> sudo yum -y install gstreamer1-libav
+
+安装完毕，似乎没有用<br>
+...原来是gst-inspect的问题<br>
+使用
+> gst-inspect-1.0 | grep aac
+
+找到avenc_aac,
+> gst-launch-1.0 filesrc location=sample.webm ! decodebin name=demux ! queue ! x264enc ! mp4mux name=mux ! filesink location=1.mp4 demux. ! queue ! audioconvert ! audioresample ! avenc_aac ! mux.
+
+*centos7 ok*
+---------------------------------------------------
+**C代码实现脚本**
