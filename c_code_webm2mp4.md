@@ -116,3 +116,13 @@ main (int argc, char *argv[])
 }
 
 ```
+## 2.no gst_parse_launch
+- 官网查询并网上搜索decodebin,queue,mp4mux相关资料
+- 参照[gst_vis](http://noraisin.net/gst/gst_vis.c)进行改写
+  1. 编译命令修改，gstreamer-0.10改为gstreamer-1.0，另外在ubuntu下需要调整顺序
+  > gcc -g -Wall `pkg-config --cflags --libs gtk+-2.0 gstreamer-0.10` -o gst_vis gst_vis.c
+  2. 版本相关导致的调用函数修改
+  gstreamer-0.10 | gstreamer-1.0
+  ---|---:
+    gst_element_get_pad|gst_element_get_static_pad
+- 
