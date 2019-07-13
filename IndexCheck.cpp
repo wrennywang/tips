@@ -1,4 +1,4 @@
-﻿// IndexCheck.cpp : 此文件包含 "main" 函数。程序执行将在此处开始并结束。
+// IndexCheck.cpp : 此文件包含 "main" 函数。程序执行将在此处开始并结束。
 //
 
 #include "pch.h"
@@ -39,7 +39,8 @@ typedef struct SmpVodfileIndexS
 
 }SmpVodfileIndexT;
 
-// 查找数据中naltype 7/5/1；当码流中出现，则说明为一帧起始，需注意有7时，必定有8，5，需将7当I帧起始，否则将5当I帧起始；1为P帧起始；
+// 查找数据中naltype 7/5/1；
+// 当码流中出现，则说明为一帧起始，需注意有7时，必定有8，5，需将7当I帧起始，否则将5当I帧起始；1为P帧起始；
 static bool IsNalHead(char *buf, int *type)
 {
 	bool isHead = false;
@@ -55,7 +56,8 @@ static bool IsNalHead(char *buf, int *type)
 	return isHead;
 }
 
-// 校验索引文件和数据文件，按正常逻辑，当前帧的偏移为上一帧偏移加长度，且偏移开始为4字节为00 00 00 01，第5字节为naltype;
+// 校验索引文件和数据文件，
+// 按正常逻辑，当前帧的偏移为上一帧偏移加长度，且偏移开始为4字节为00 00 00 01，第5字节为naltype;
 static bool IsNeedReIndex(FILE *tStream, SmpVodfileIndexT *vodfileIndex)
 {
 	bool bNeedReIndex = false;
@@ -64,13 +66,19 @@ static bool IsNeedReIndex(FILE *tStream, SmpVodfileIndexT *vodfileIndex)
 
 	const int BUF_LEN = 1024 * 1024;
 	char *buf = (char*)malloc(BUF_LEN);
-	int i = 0;
+
+	// 当前文件中帧索引值
+	int nCurFileFrameIndex = 0;
 	int readPos = 0;
 	int pos = vodfileIndex->FrameIndex[0].FramePos;
 	int size = vodfileIndex->FrameIndex[0].FrameSize;
-	int frameNum = vodfileIndex->FrameIndex[0].FrameIndex;
+	
+	// 上一帧帧序号
+	int nLastFrameNO = vodfileIndex->FrameIndex[0].FrameIndex;
 	SmpUlongT nInterval = 0;
-	const int totalFrames = vodfileIndex->FrameCount;
+	
+	// 索引信息头中总帧数
+	const int cnTotalFrames = vodfileIndex->FrameCount;
 
 	if ((size <= 5) || (pos + size > filelen))
 	{
@@ -95,8 +103,9 @@ static bool IsNeedReIndex(FILE *tStream, SmpVodfileIndexT *vodfileIndex)
 	while (readlen)
 	{
 
-		i++;
-		if (i == totalFrames)
+		nCurFileFrameIndex++;
+		if (nCurFileFrameIndex == cnTotalFrames
+			|| vodfileIndex->IndexSize < nCurFileFrameIndex * sizeof(FrameIndexT) + sizeof(SmpVodfileIndexT))
 		{
 			if (readlen != size)
 			{
@@ -105,38 +114,37 @@ static bool IsNeedReIndex(FILE *tStream, SmpVodfileIndexT *vodfileIndex)
 			free(buf);
 			return false;
 		}
-		if (i > totalFrames)
-		{
-			free(buf);
-			return true;
-		}
 
 		if (size + 5 < readlen)
 		{
-			// 偏移加长度超出下一帧的偏移
-			if ((pos + size) > vodfileIndex->FrameIndex[i].FramePos)
+			// 上一帧偏移(pos)加长度(size)不等于当前帧的偏移
+			if ((pos + size) != vodfileIndex->FrameIndex[nCurFileFrameIndex].FramePos)
 			{
-				if (i < totalFrames && vodfileIndex->FrameIndex[i++].FrameSize == 0)
+				// 当前帧索引值小于索引信息头中总帧数，但下一帧长度已经为0，有异常，但认为到当前文件结束；
+				if (nCurFileFrameIndex < cnTotalFrames && vodfileIndex->FrameIndex[nCurFileFrameIndex++].FrameSize == 0)
 				{
 					free(buf);
 					return false;
 				}
 				printf( "vod file: cur frame pos (%d) + size (%d) is larger than next frame pos(%d)!\n",
-					pos, size, vodfileIndex->FrameIndex[i].FramePos);
+					pos, size, vodfileIndex->FrameIndex[nCurFileFrameIndex].FramePos);
 				free(buf);
 				return true;
 			}
-			if (frameNum + 1 != vodfileIndex->FrameIndex[i].FrameIndex)
+			// 帧不连续
+			if (nLastFrameNO + 1 != vodfileIndex->FrameIndex[nCurFileFrameIndex].FrameIndex)
 			{
 				printf( "vod file: cur frame index (%d) and next frame index isn't continue\n",
-					frameNum, vodfileIndex->FrameIndex[i].FrameIndex);
+					nLastFrameNO, vodfileIndex->FrameIndex[nCurFileFrameIndex].FrameIndex);
 				free(buf);
 				return true;
 			}
 
+			// 检验数据文件，当前帧位置加长度，是否为下一帧开始(0x00 00 00 01)
 			if (IsNalHead(buf + size, &nalType))
 			{
 				// 检验完一帧挪动一帧，代码逻辑简单，但性能低
+				// TODO:优化性能
 				int remainLen = readlen - size;
 				memmove(buf, buf + size, remainLen);
 				readlen = fread(buf + remainLen, 1, BUF_LEN - remainLen, tStream);
@@ -146,28 +154,57 @@ static bool IsNeedReIndex(FILE *tStream, SmpVodfileIndexT *vodfileIndex)
 				}
 				if (readlen == 0)
 				{
-					printf("vod file: file end! index file record %d frame, data file %d frame\n", totalFrames, frameNum);
+					printf("vod file: file end! index file record %d frame, data file %d frame\n", cnTotalFrames, nLastFrameNO);
 					free(buf);
 					return false;
 				}
 			}
 			else
 			{
+				bool bIndexError = false;
+				int i = 0;
+				for (i = nCurFileFrameIndex; i < cnTotalFrames - 1; i++)
+				{
+					if (vodfileIndex->FrameIndex[i].FrameSize + vodfileIndex->FrameIndex[i].FramePos
+						!= vodfileIndex->FrameIndex[i + 1].FramePos)
+					{
+						printf("vod file index error: frame no %d, frame pos %d, frame size %d, next frame pos %d != (cur frame pos+size = %d) \n",
+							i, vodfileIndex->FrameIndex[i].FramePos,
+							vodfileIndex->FrameIndex[i].FrameSize, vodfileIndex->FrameIndex[i + 1].FramePos,
+							vodfileIndex->FrameIndex[i].FrameSize + vodfileIndex->FrameIndex[i].FramePos);
+						bIndexError = true;
+						break;
+					}
+				}
+				if (bIndexError)
+				{
+					printf("vod file: index error at %d; index and data not match at %d\n ", i, nCurFileFrameIndex);
+				}
+				else
+				{
+					printf("vod file: index and data not match at %d, but index is ok\n", nCurFileFrameIndex);
+				}
 				free(buf);
 				return true;
 			}
 
-			pos = vodfileIndex->FrameIndex[i].FramePos;
-			size = vodfileIndex->FrameIndex[i].FrameSize;
-			frameNum = vodfileIndex->FrameIndex[i].FrameIndex;
-			if (i > 0)
+			pos = vodfileIndex->FrameIndex[nCurFileFrameIndex].FramePos;
+			size = vodfileIndex->FrameIndex[nCurFileFrameIndex].FrameSize;
+			nLastFrameNO = vodfileIndex->FrameIndex[nCurFileFrameIndex].FrameIndex;
+
+			// 简单查看帧间隔
+			if (0 && nCurFileFrameIndex > 0)
 			{
-				nInterval = vodfileIndex->FrameIndex[i].TimeStamp - vodfileIndex->FrameIndex[i - 1].TimeStamp;
-				printf("frame %d interval %lldd\n", i, nInterval);
+				nInterval = vodfileIndex->FrameIndex[nCurFileFrameIndex].TimeStamp - vodfileIndex->FrameIndex[nCurFileFrameIndex - 1].TimeStamp;
+				printf("frame %d interval %lld\n", nCurFileFrameIndex, nInterval);
 			}
-			if (i > 0 && vodfileIndex->FrameIndex[i - 1].FramePos + vodfileIndex->FrameIndex[i - 1].FrameSize != vodfileIndex->FrameIndex[i].FramePos)
+			// 校验索引，上一帧索引偏移+长度是否等于当前帧索引位置
+			if (nCurFileFrameIndex > 0 
+				&& vodfileIndex->FrameIndex[nCurFileFrameIndex - 1].FramePos 
+				+ vodfileIndex->FrameIndex[nCurFileFrameIndex - 1].FrameSize 
+				!= vodfileIndex->FrameIndex[nCurFileFrameIndex].FramePos)
 			{
-				printf("frame %d, pos %d, size %d\n", frameNum, pos, size);
+				printf("frame %d, pos %d, size %d\n", nLastFrameNO, pos, size);
 			}
 		}
 
@@ -186,17 +223,17 @@ static SmpVodfileIndexT* ReIndex(FILE *pf)
 	const int BUF_LEN = 1024 * 1024;
 	char *buf = (char*)malloc(BUF_LEN + 5);
 	int readLen = 0;
-	int fileReadPos = 0;
-	int frameNum = 0;
-	int timeStamp = 0;
+	int fileReadPos = 0;						// 文件读到的位置
+	int nFrameNO = 0;							// 当前帧序号
+	int timeStamp = 0;							// 当前帧时间戳
 	int nalType = 0;
 	bool hasSPS = false;
-	bool bRemain5Byte = false;
+	int nRemainByte = 0;						// 一次读1M数据，留5个字节与下一次读取数据一起解析
 	do
 	{
-		readLen = fread(buf + (bRemain5Byte ? 5 : 0), 1, BUF_LEN, pf);
+		readLen = fread(buf + nRemainByte, 1, BUF_LEN, pf);
 		int pos = 0;
-		while (pos + 5 < readLen + (bRemain5Byte ? 5 : 0))
+		while (pos + 5 < readLen + nRemainByte)
 		{
 			if (IsNalHead(buf + pos, &nalType))
 			{
@@ -204,58 +241,62 @@ static SmpVodfileIndexT* ReIndex(FILE *pf)
 				{
 					hasSPS = true;
 				}
-				if (hasSPS && nalType != 7 && nalType != 1)
-				{
-					pos++;
-					continue;
-				}
-				if (!hasSPS && nalType != 5 && nalType != 1)
+				// P slice为P帧开始；读到SPS，则认为sps为I帧开始；没有读到SPS则认为I slice为I帧开始;
+				// TODO:当前认为视频帧均为单slice构成
+				if ((hasSPS && nalType != 7 && nalType != 1) || (!hasSPS && nalType != 5 && nalType != 1))
 				{
 					pos++;
 					continue;
 				}
 
-				vodfileIndex->FrameIndex[frameNum].FrameIndex = frameNum;
-				vodfileIndex->FrameIndex[frameNum].FramePos = fileReadPos + pos - (bRemain5Byte ? 5 : 0);
-				if (frameNum > 0)
+				vodfileIndex->FrameIndex[nFrameNO].FrameIndex = nFrameNO;
+				vodfileIndex->FrameIndex[nFrameNO].FramePos = fileReadPos + pos - nRemainByte;
+
+				// 读一帧，计算上一帧大小
+				if (nFrameNO > 0)
 				{
-					vodfileIndex->FrameIndex[frameNum - 1].FrameSize = fileReadPos + pos - (bRemain5Byte ? 5 : 0) - vodfileIndex->FrameIndex[frameNum - 1].FramePos;
+					vodfileIndex->FrameIndex[nFrameNO - 1].FrameSize = fileReadPos + pos - nRemainByte- vodfileIndex->FrameIndex[nFrameNO - 1].FramePos;
 				}
 				else
 				{
-					vodfileIndex->FrameIndex[frameNum].FrameSize = 0;
+					vodfileIndex->FrameIndex[nFrameNO].FrameSize = 0;
 				}
-				vodfileIndex->FrameIndex[frameNum].FrameType = (nalType == 5 || nalType == 7) ? SMP_I_FREAM : SMP_P_FREAM;
+				vodfileIndex->FrameIndex[nFrameNO].FrameType = (nalType == 5 || nalType == 7) ? SMP_I_FREAM : SMP_P_FREAM;
+
 				// 先按25帧写时间戳，间隔需要根据实际单位进行调整
-				vodfileIndex->FrameIndex[frameNum].TimeStamp = timeStamp + 3600;
-				timeStamp = vodfileIndex->FrameIndex[frameNum].TimeStamp;
-				if (frameNum > 0 
-					&& (vodfileIndex->FrameIndex[frameNum].FramePos 
-						!= vodfileIndex->FrameIndex[frameNum - 1].FramePos + vodfileIndex->FrameIndex[frameNum - 1].FrameSize))
-				printf("cur frame pos %d, last frame pos %d size %d >> %d \n", 
-					vodfileIndex->FrameIndex[frameNum].FramePos,
-					vodfileIndex->FrameIndex[frameNum - 1].FramePos, vodfileIndex->FrameIndex[frameNum-1].FrameSize,
-					vodfileIndex->FrameIndex[frameNum - 1].FramePos + vodfileIndex->FrameIndex[frameNum - 1].FrameSize);
-				frameNum++;
-				if (frameNum > 40 * 60 * 30)
+				vodfileIndex->FrameIndex[nFrameNO].TimeStamp = timeStamp;
+				timeStamp = vodfileIndex->FrameIndex[nFrameNO].TimeStamp + 3600;
+				if (nFrameNO > 0
+					&& (vodfileIndex->FrameIndex[nFrameNO].FramePos
+						!= vodfileIndex->FrameIndex[nFrameNO - 1].FramePos + vodfileIndex->FrameIndex[nFrameNO - 1].FrameSize))
+				{
+					printf("cur frame pos %d, last frame pos %d size %d >> %d \n",
+						vodfileIndex->FrameIndex[nFrameNO].FramePos,
+						vodfileIndex->FrameIndex[nFrameNO - 1].FramePos, vodfileIndex->FrameIndex[nFrameNO - 1].FrameSize,
+						vodfileIndex->FrameIndex[nFrameNO - 1].FramePos + vodfileIndex->FrameIndex[nFrameNO - 1].FrameSize);
+				}
+				nFrameNO++;
+
+				// TODO:当前按半个小时录一个文件处理，先假定文件中帧数不会大于40*60*30
+				if (nFrameNO > 40 * 60 * 30)
 				{
 					goto END;
 				}
 			}
 			pos++;
 		}
-		memmove(buf, buf + BUF_LEN - (bRemain5Byte ? 5 : 0), 5);
-		bRemain5Byte = true;
+		memmove(buf, buf + BUF_LEN - nRemainByte, 5);
+		nRemainByte = 5;
 		
 		fileReadPos += readLen;
 	} while (readLen > 0 && readLen <= BUF_LEN);
 END:
 
-	vodfileIndex->FrameIndex[frameNum].FrameSize = fileReadPos - vodfileIndex->FrameIndex[frameNum - 1].FramePos;
-	vodfileIndex->FrameCount = frameNum;
-	vodfileIndex->IndexSize = sizeof(SmpVodfileIndexT) + frameNum * sizeof(FrameIndexT);
+	vodfileIndex->FrameIndex[nFrameNO].FrameSize = fileReadPos - vodfileIndex->FrameIndex[nFrameNO - 1].FramePos;
+	vodfileIndex->FrameCount = nFrameNO;
+	vodfileIndex->IndexSize = sizeof(SmpVodfileIndexT) + nFrameNO * sizeof(FrameIndexT);
 	vodfileIndex->CodecType = 1;
-	printf("vod file: reindex; total frame %d, \n", frameNum);
+	printf("vod file: reindex; total frame %d, \n", nFrameNO);
 	int fileLen = ftell(pf);
 
 	free(buf);
@@ -263,25 +304,52 @@ END:
 }
 
 
-int main()
+int main(int argc, char *argv[])
 {
+	char indexfileName[_MAX_FNAME + _MAX_PATH] = { 0 };
+	char* inputfileName = NULL;
+	if (argc == 2)
+	{
+		inputfileName = argv[1];
+		sprintf_s(indexfileName, _MAX_FNAME + _MAX_PATH, "%s.index", inputfileName);
+	}
+	else
+	{
+		printf("please input one vod file *.ts\n");
+		return 0;
+	}
 	FILE *fpIndex;
 
-	errno_t err = fopen_s(&fpIndex, "C:\\Users\\admin\\Desktop\\ehualu\\jy_video\\2019-07-02_11-48-26.ts.index", "rb");
+	// 测试情况:
+	// jy_video\\2019-07-03_13-44-22.ts 索引文件本身正常，数据文件正常，但两者不匹配
+	//			2019-07-02_11-48-26.ts 索引/数据文件均正常
+	// 2019-07-10_13-34-21.ts，数据文件正常，索引正常， 但索引26118帧，数据文件仅26071帧
+	// 现场姜堰\\2019-06-27_17-27-51.ts,索引文件数据文件不匹配
+	// 现场遵义\\2019-07-03_14-25-31.ts,索引文件数据文件正常匹配
+	errno_t err = fopen_s(&fpIndex, indexfileName, "rb");
 
 	if (err == 0)
 	{
 		FILE *fpData;
-		err = fopen_s(&fpData, "C:\\Users\\admin\\Desktop\\ehualu\\jy_video\\2019-07-02_11-48-26.ts", "rb");
+		err = fopen_s(&fpData, inputfileName, "rb");
 		if (err)
 		{
 			printf("data file open fail!\n");
+			return 0;
 		}
-		char *buffer = (char*)malloc(1024 * 1024);
-		int len = fread(buffer, 1, 1024 * 1024, fpIndex);
-		len = ftell(fpIndex);
-		int size = sizeof(SmpVodfileIndexT);
+		fseek(fpIndex, 0, SEEK_END);
+		int len = ftell(fpIndex);
+		fseek(fpIndex, 0, SEEK_SET);
+		char *buffer = (char*)malloc(len);
+		len = fread(buffer, 1, len, fpIndex);
+		//int size = sizeof(SmpVodfileIndexT);
 		SmpVodfileIndexT *pVodFileIndex = (SmpVodfileIndexT *)buffer;
+		if (pVodFileIndex->IndexSize != len)
+		{
+			printf("vod file: index file size error! head record size %d, in fact size %d, total frames %d\n", 
+				pVodFileIndex->IndexSize, len, pVodFileIndex->FrameCount);
+			pVodFileIndex->IndexSize = len;
+		}
 		if (IsNeedReIndex(fpData, pVodFileIndex))
 		{
 			pVodFileIndex = ReIndex(fpData);
@@ -305,6 +373,7 @@ int main()
 	{
 		printf("index file open fail!\n");
 	}
+	printf("enter 'q' to exit\n");
 	while (getchar() != 'q')
 	{
 	}
