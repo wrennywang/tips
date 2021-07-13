@@ -16,8 +16,9 @@
 
 ### 1.3 将安装的包保存到文件夹
 ```
-  >pip download -r requirements.txt -d packages
+  >pip download -r requirements.txt -d packages 
 ```
+如有错误提示根据提示处理，如加“--trusted-host mirrors.aliyun.com”
 
 ## 2 另一台电脑
 ### 2.1 新建虚拟环境
